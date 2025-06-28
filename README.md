@@ -1,36 +1,95 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Bug Reproduction: Next.js Dynamic Parameter Error with Sentry `sendDefaultPii`
 
-## Getting Started
+## Bug Description
 
-First, run the development server:
+When `sendDefaultPii: true` is added to the Sentry server configuration, Next.js throws a dynamic parameter error in the console.
 
-```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+**Related Issue**: https://github.com/getsentry/sentry-javascript/issues/16542
+
+## Error Message
+
+```
+Error: Route "/" used `...params` or similar expression. `params` should be awaited before using its properties. Learn more: https://nextjs.org/docs/messages/sync-dynamic-apis
+    at Function.entries (<anonymous>)
+    at Object.apply (webpack-internal:/(rsc)/src/app/sentry-wrapper-module:47:9)
+  45 |         baggageHeader,
+  46 |         headers,
+> 47 |       }).apply(thisArg, args);
+     |         ^
+  48 |     },
+  49 |   });
+  50 | } else {
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+## Environment
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+- **Next.js**: 15.3.4
+- **React**: 19.1.0
+- **Sentry**: @sentry/nextjs@9.33.0
+- **TypeScript**: 5.8.3
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+## Steps to Reproduce
 
-## Learn More
+1. **Clone the repository**
+   ```bash
+   git clone https://github.com/daanvosdewael/next-sentry-async-params.git
+   cd next-sentry-async-params
+   npm install
+   ```
 
-To learn more about Next.js, take a look at the following resources:
+2. **Reproduce the working state** (without the bug)
+   ```bash
+   git checkout a3271b6  # "feat: add Sentry config" commit
+   npm run dev
+   ```
+   - Navigate to http://localhost:3000
+   - Check console - no errors should appear
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+3. **Reproduce the broken state** (with the bug)
+   ```bash
+   git checkout b2a401a  # "feat: add `sendDefaultPii` on server config" commit
+   npm run dev
+   ```
+   - Navigate to http://localhost:3000
+   - Check console - the dynamic parameter error should appear
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+## Configuration Difference
 
-## Deploy on Vercel
+The bug is triggered by adding `sendDefaultPii: true` to the Sentry server configuration:
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+**Working configuration** (commit a3271b6):
+```typescript
+// sentry.server.config.ts
+import * as Sentry from "@sentry/nextjs";
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+Sentry.init({
+  dsn: "",
+  debug: false,
+});
+```
+
+**Broken configuration** (commit b2a401a):
+```typescript
+// sentry.server.config.ts
+import * as Sentry from "@sentry/nextjs";
+
+Sentry.init({
+  dsn: "",
+  debug: false,
+  sendDefaultPii: true,  // This line triggers the bug
+});
+```
+
+## Expected Behavior
+
+Adding `sendDefaultPii: true` should not cause Next.js dynamic parameter errors.
+
+## Actual Behavior
+
+The error suggests that Sentry's integration is accessing `params` synchronously when it should be awaited, violating Next.js 15's async parameter requirements.
+
+## Additional Notes
+
+- The error appears to originate from Sentry's wrapper module at line 47
+- The error specifically mentions Route "/" but may affect other routes as well
+- This appears to be related to Next.js 15's new async parameter handling requirements
